@@ -75,7 +75,8 @@ docker run -d --name "$container" --label "proof.token=$run_id" --network none \
   --mount "type=volume,src=$volume,dst=/var/lib/mysql" \
   "$IMAGE" mysqld --skip-grant-tables --skip-networking >/dev/null
 wait_ready ''
-test "$(sql '' 'SELECT @@GLOBAL.skip_networking, @@GLOBAL.skip_grant_tables')" = $'1\t1'
+test "$(sql '' 'SELECT @@GLOBAL.skip_networking')" = 1
+docker exec "$container" sh -c 'tr "\000" "\n" < /proc/1/cmdline' | grep -Fxq -- '--skip-grant-tables'
 pass 'recovery server has both networking and grant-table loading disabled'
 expect_error '' "ALTER USER 'root'@'localhost' IDENTIFIED BY '$new_password'" 1290
 pass 'ALTER USER before FLUSH PRIVILEGES reproduces ERROR 1290'
@@ -99,8 +100,11 @@ docker run -d --name "$container" --label "proof.token=$run_id" --network none \
   --mount "type=volume,src=$volume,dst=/var/lib/mysql" \
   -e MYSQL_ROOT_PASSWORD="$old_password" "$IMAGE" >/dev/null
 wait_ready "$new_password"
-test "$(sql "$new_password" 'SELECT @@GLOBAL.skip_grant_tables')" = 0
+if docker exec "$container" sh -c 'tr "\000" "\n" < /proc/1/cmdline' | grep -Fxq -- '--skip-grant-tables'; then
+  echo 'Recovery flag unexpectedly remained on normal restart' >&2; exit 1
+fi
 test "$(sql "$new_password" 'SELECT payload FROM proof.sentinel WHERE id=1')" = 'SYNTHETIC_PRESERVATION_SENTINEL'
+expect_error '' 'SELECT 1' 1045
 expect_error "$old_password" 'SELECT 1' 1045
 pass 'normal restart restores grant checking and retains new password and sentinel'
 test "$(docker inspect --format '{{.HostConfig.NetworkMode}}' "$container")" = none

@@ -1,0 +1,14 @@
+name: Synthetic MySQL recovery proof
+on: [push, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify shell syntax
+        run: bash -n proof.sh
+      - name: Reproduce order error and test normal recovery restart
+        run: bash proof.sh
